@@ -1,5 +1,12 @@
 #!/usr/bin/env Rscript
 
+# Author: Elliot Kleiman
+# File..: plot1.R
+# Desc..: File to analyze course project data
+# Date..: Sat Dec 20 18:14:13 EST 2014
+# Usage.: $ Rscript plot1.R # execute from a Unix or Linux shell, or
+# source(run_analysis.R) # execute from R console 
+
 ## 0. Download data ---------------------------
 
 # Data dir exist?
@@ -63,11 +70,13 @@ plot.file <- file.path(plot.directory, plot.name)
 #png(file = plot.file)
 
 # Compute total emissions by year
-#total.emissions <- aggregate(Emissions ~ year, data = nei, sum)
 require(dplyr)
-emissions <- nei %.%
-               group_by(year) %.%
+emissions <- nei %>%
+               group_by(year) %>%
                summarise(total = sum(Emissions))
+
+# alternatively, could use base aggregate():
+# total.emissions <- aggregate(Emissions ~ year, data = nei, sum)
 
 # Plot
 plot(emissions$year, emissions$total, xaxt = "n", type = "b", xlab = "", ylab = "")
@@ -91,9 +100,9 @@ plot.file <- file.path(plot.directory, plot.name)
 
 # Compute total emissions by year for county Baltimore city
 require(dplyr)
-emissions.balto <- nei %.%
-                     filter(fips == "24510") %.%
-                     group_by(year) %.%
+emissions.balto <- nei %>%
+                     filter(fips == "24510") %>%
+                     group_by(year) %>%
                      summarise(total = sum(Emissions))
 # Plot
 plot(emissions.balto$year, emissions.balto$total, xaxt = "n", type = "b", xlab = "", ylab = "")
@@ -117,9 +126,9 @@ plot.file <- file.path(plot.directory, plot.name)
 
 # Compute total emissions by year for county Baltimore city
 require(dplyr)
-emissions.balto.type <- nei %.%
-                          filter(fips == "24510") %.%
-                          group_by(year, type) %.%
+emissions.balto.type <- nei %>%
+                          filter(fips == "24510") %>%
+                          group_by(year, type) %>%
                           summarise(total = sum(Emissions))
 
 # Plot
@@ -153,9 +162,9 @@ scc.coal <- as.character(classification[coal.sources.index, "SCC"])
 
 # Compute total coal combustion-related emissions by year
 require(dplyr)
-emissions.coal <- nei %.%
-                    filter(SCC %in% scc.coal) %.%
-                    group_by(year) %.%
+emissions.coal <- nei %>%
+                    filter(SCC %in% scc.coal) %>%
+                    group_by(year) %>%
                     summarise(total = sum(Emissions))
 
 # Plot
@@ -190,9 +199,9 @@ scc.motor.vehicles <- as.character(classification[motor.vehicle.sources.index, "
 
 # Compute total motor vehicle emissions by year
 require(dplyr)
-emissions.motor.vehicles.balto <- nei %.%
-                                    filter(SCC %in% scc.motor.vehicles & fips == "24510") %.%
-                                    group_by(year) %.%
+emissions.motor.vehicles.balto <- nei %>%
+                                    filter(SCC %in% scc.motor.vehicles & fips == "24510") %>%
+                                    group_by(year) %>%
                                     summarise(total = sum(Emissions))
 
 # Plot
@@ -228,19 +237,25 @@ scc.motor.vehicles <- as.character(classification[motor.vehicle.sources.index, "
 
 # Compute total motor vehicle emissions by year for both Balto and LA
 require(dplyr)
-# Use rename(county = fips), if upgrade to R version 3.1
-## not-run:
-# alternatively, mutate(county = ifelse(fips == "24510", "Baltimore City", "Los Angeles")
-emissions.motor.vehicles.balto.la <- nei %.%
-                                       filter(SCC %in% scc.motor.vehicles & fips == "06037" | fips == "24510") %.%
-                                       group_by(year, fips) %.%
+emissions.motor.vehicles.balto.la <- nei %>%
+                                       filter(SCC %in% scc.motor.vehicles & fips == "06037" | fips == "24510") %>%
+                                       mutate(fips = ifelse(fips == "06037", "Los Angeles", "Baltimore City")) %>%
+                                       rename(county = fips) %>%
+                                       group_by(year, county) %>%
                                        summarise(total = sum(Emissions))
 
-# Set fips values to their character string equivalents
-emissions.motor.vehicles.balto.la$fips <- rep(c("Los Angeles", "Baltimore City"), 4)
+# Define function to scale total between 0 and 1
+range01 <- function(x) {
+    (x - min(x)) / (max(x) - min(x))
+}
 
-# Rename colname "fips" to "county"
-colnames(emissions.motor.vehicles.balto.la)[2] <- "county"
+# Scale balto and la between 0 and 1
+balto.scaled.01 <- range01(emissions.motor.vehicles.balto.la$total[emissions.motor.vehicles.balto.la$county == "Baltimore City"])
+   la.scaled.01 <- range01(emissions.motor.vehicles.balto.la$total[emissions.motor.vehicles.balto.la$county == "Los Angeles"])
+
+# Update total to scaled value
+emissions.motor.vehicles.balto.la$total[emissions.motor.vehicles.balto.la$county == "Baltimore City"] <- balto.scaled.01
+emissions.motor.vehicles.balto.la$total[emissions.motor.vehicles.balto.la$county == "Los Angeles"]    <- la.scaled.01
 
 # Plot
 require(ggplot2)
@@ -249,11 +264,10 @@ g <- ggplot(emissions.motor.vehicles.balto.la, aes(year, total))
 # Add layers
 g +
   geom_line(aes(color = county)) +
+  facet_grid(. ~ county) +
+  geom_smooth(method = "lm", se = FALSE, color = "#333333", alpha = 1/2) +
   labs(title = expression("Total " * PM[2.5] * " Motor Vehicle Emissions by Year")) +
-  labs(x = "Year", y = expression("Total " * PM[2.5] * " Emissions (tons)"))
-
-# inspect relative percent chnage ((new - old) / old) * 100
-# scale total to [0, 1]: xi - min(x) / max(x) - min(x)
+  labs(x = "Year", y = expression("Total " * PM[2.5] * " Emissions (tons, rescaled [0, 1])"))
 
 # Close device
 dev.off()
